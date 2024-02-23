@@ -76,5 +76,13 @@ private:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_texture;
     unique_ptr<DirectX::IEffectFactory> m_fxFactory;
     unique_ptr<DirectX::Model> m_model;
+    unique_ptr<DirectX::Keyboard> m_keyboard;
+    unique_ptr<DirectX::Mouse> m_mouse;
+    unique_ptr<DirectX::GeometricPrimitive> m_room;
+    float m_pitch;
+    float m_yaw;
+    DirectX::SimpleMath::Vector3 m_cameraPos;
 
+    DirectX::SimpleMath::Color m_roomColor;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_roomTex;
 };

@@ -203,6 +203,7 @@
     <Image Include="cup.jpg" />
     <Image Include="directx.ico" />
     <Image Include="earth.bmp" />
+    <Image Include="roomtexture.dds" />
     <Image Include="sunset.jpg" />
   </ItemGroup>
   <ItemGroup>

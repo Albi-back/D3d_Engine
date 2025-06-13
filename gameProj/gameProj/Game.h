@@ -6,6 +6,8 @@
 
 #include "DeviceResources.h"
 #include "StepTimer.h"
+#include "Model_Attributes.h"
+#include <unordered_map>
 using namespace std;
 
 // A basic game implementation that creates a D3D11 device and
@@ -28,6 +30,7 @@ public:
 
     // Basic game loop
     void Tick();
+    void LoadModel(const std::string& filename, ID3D11Device* device);
 
     // IDeviceNotify
     void OnDeviceLost() override;
@@ -41,10 +44,10 @@ public:
     void OnWindowMoved();
     void OnDisplayChange();
     void OnWindowSizeChanged(int width, int height);
-
+    std::unordered_map<std::string, MyModel> m_Models;
     // Properties
     void GetDefaultSize( int& width, int& height ) const noexcept;
-
+    
 private:
 
     void Update(DX::StepTimer const& timer);
@@ -85,4 +88,6 @@ private:
 
     DirectX::SimpleMath::Color m_roomColor;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_roomTex;
+   
+    //std::unordered_map<std::string, Texture> m_Texture;
 };

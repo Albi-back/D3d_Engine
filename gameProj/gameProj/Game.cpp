@@ -2,9 +2,14 @@
 // Game.cpp
 //
 
+
 #include "pch.h"
 #include "Game.h"
 #include <SpriteBatch.h>
+#define TINYOBJLOADER_IMPLEMENTATION 
+#include "../../../headers/tiny_obj_loader.h"
+
+
 
 extern void ExitGame() noexcept;
 
@@ -53,6 +58,110 @@ void Game::Initialize(HWND window, int width, int height)
     m_timer.SetTargetElapsedSeconds(1.0 / 60);
     */
 }
+void Game::LoadModel(const std::string& filename, ID3D11Device* device)
+{
+    // Check if already loaded
+    //auto it = m_Models.find(filename);
+   // if (it != m_Models.end())
+     //   return; // Already loaded
+    MyModel tempModel;
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warning, err;
+
+    bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warning, filename.c_str());
+    if (!warning.empty())
+        OutputDebugStringA(("TinyObj warning: " + warning + "\n").c_str());
+    if (!ret)
+        throw std::runtime_error("Failed to load OBJ: " + err);
+
+    std::vector<Vertex> vertices;
+    std::vector<uint16_t> indices;
+    std::unordered_map<Vertex, uint16_t, VertexHasher> uniqueVertices;
+
+    for (const auto& shape : shapes)
+    {
+        size_t index_offset = 0;
+        for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f)
+        {
+            size_t fv = shape.mesh.num_face_vertices[f];
+            for (size_t v = 0; v < fv; ++v)
+            {
+                tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+
+                Vertex vert{};
+
+                vert.position = Vector3(
+                    attrib.vertices[3 * idx.vertex_index + 0],
+                    attrib.vertices[3 * idx.vertex_index + 1],
+                    attrib.vertices[3 * idx.vertex_index + 2]);
+
+                if (idx.normal_index >= 0)
+                {
+                    vert.normal = Vector3(
+                        attrib.normals[3 * idx.normal_index + 0],
+                        attrib.normals[3 * idx.normal_index + 1],
+                        attrib.normals[3 * idx.normal_index + 2]);
+                }
+                else
+                {
+                    vert.normal = Vector3(0, 0, 0);
+                }
+
+                if (idx.texcoord_index >= 0)
+                {
+                    vert.texcoord = Vector2(
+                        attrib.texcoords[2 * idx.texcoord_index + 0],
+                        1.0f - attrib.texcoords[2 * idx.texcoord_index + 1]);
+                }
+                else
+                {
+                    vert.texcoord = Vector2(0, 0);
+                }
+
+                // Deduplicate vertices
+                if (uniqueVertices.count(vert) == 0)
+                {
+                    uniqueVertices[vert] = static_cast<uint16_t>(vertices.size());
+                    vertices.push_back(vert);
+                }
+                indices.push_back(uniqueVertices[vert]);
+            }
+            index_offset += fv;
+        }
+    }
+
+    
+    tempModel.m_vertexCount = static_cast<UINT>(vertices.size());
+    tempModel.m_indexCount = static_cast<UINT>(indices.size());
+
+    // Create vertex buffer
+    D3D11_BUFFER_DESC vbDesc{};
+    vbDesc.Usage = D3D11_USAGE_DEFAULT;
+    vbDesc.ByteWidth = sizeof(Vertex) * tempModel.m_vertexCount;
+    vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA vbData{};
+    vbData.pSysMem = vertices.data();
+
+    HRESULT hr = device->CreateBuffer(&vbDesc, &vbData, &tempModel.m_vertexBuffer);
+    if (FAILED(hr)) throw std::runtime_error("Failed to create vertex buffer");
+
+    // Create index buffer
+    D3D11_BUFFER_DESC ibDesc{};
+    ibDesc.Usage = D3D11_USAGE_DEFAULT;
+    ibDesc.ByteWidth = sizeof(uint16_t) * tempModel.m_indexCount;
+    ibDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA ibData{};
+    ibData.pSysMem = indices.data();
+
+    hr = device->CreateBuffer(&ibDesc, &ibData, &tempModel.m_indexBuffer);
+    if (FAILED(hr)) throw std::runtime_error("Failed to create index buffer");
+
+    m_Models.emplace(filename, std::move(tempModel));
+}
 
 #pragma region Frame Update
 // Executes the basic game loop.
@@ -83,7 +192,7 @@ void Game::Update(DX::StepTimer const& timer)
             * ROTATION_GAIN;
 
         m_pitch -= delta.y;
-        m_yaw -= delta.x;
+        m_yaw += delta.x;
     }
 
     m_mouse->SetMode(mouse.leftButton
@@ -144,13 +253,27 @@ void Game::Update(DX::StepTimer const& timer)
     if (kb.PageDown || kb.S)
         move.z -= 1.f;
 
+    // Create full orientation from yaw and pitch
     Quaternion q = Quaternion::CreateFromYawPitchRoll(m_yaw, m_pitch, 0.f);
 
-    move = Vector3::Transform(move, q);
+    // Get camera-relative direction vectors
+    Vector3 forward = Vector3::Transform(Vector3::Forward, q); // the direction the camera is facing
+    Vector3 right = Vector3::Transform(Vector3::Right, q);   // right relative to camera
+    Vector3 up = Vector3::Transform(Vector3::Up, q);      // up relative to camera
 
-    move *= MOVEMENT_GAIN;
+    // Normalize movement input (optional but recommended)
+    if (move.LengthSquared() > 1.f)
+        move.Normalize();
 
-    m_cameraPos += move;
+    // Combine the directions with input
+    Vector3 movement = -forward * move.z + right * move.x + up * move.y;
+
+    // Scale by movement gain/speed
+    movement *= MOVEMENT_GAIN;
+
+    // Update camera position
+    m_cameraPos += movement;
+
 
     Vector3 halfBound = (Vector3(ROOM_BOUNDS.v) / Vector3(2.f))
         - Vector3(0.1f, 0.1f, 0.1f);
